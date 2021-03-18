@@ -12,10 +12,6 @@ Parameters:
     Type: String
     Description: User name  
     Default: workshop
-  TemplatesBucketName:
-    Type: String
-    Description: Bucket where is stored data and templates
-    Default: belc-bigdata-models-dlk-dev
   SageMakerEndpoint:
     Type: String
     Description: Sagemaker Inference endpoint
@@ -75,7 +71,7 @@ Resources:
               print("Received event: " + json.dumps(event, indent=2))
               
               data = json.loads(json.dumps(event))
-              payload = data['data']
+              payload = data['body']
               print(f"Api request payload: {payload}")
               
               try: 
@@ -86,16 +82,28 @@ Resources:
                 print(f"Sagemaker response: {response}")
                 result = json.loads(response['Body'].read().decode())
                 print(result)
-                pred = int(result['predictions'][0]['score'])
-                predicted_label = 'M' if pred == 1 else 'B'
-              
-              except botocore.ClientError.Exception as e: 
-                print(f"Error while getting predict: {str(e)}")
-              
-              return predicted_label
+                pred = result['predictions'][0]['score']
 
-          def get_response_body():
-                  
+                response = get_response_message(200,pred)
+              except botocore.exceptions.ClientError as e: 
+                print(f"Error while getting predict: {str(e)}")
+                response = get_response_message(400,-1,str(e))
+              
+              return response
+
+          def get_response_message(status,prediction, message="None"):
+            resp_hash = {}
+            resp_hash['success'] = (status == 200)
+            resp_hash['age_prediction'] = prediction
+            resp_hash['failure_reason'] = message
+            if status==400:
+                resp_hash['success'] = False
+                resp_hash['failure_reason'] = message
+            
+            return {
+                'statusCode': status,
+                'body': json.dumps(resp_hash)
+            }
   LambdaPermission:
     DependsOn: ApiGatewayLambdaRes
     Type: AWS::Lambda::Permission
@@ -144,7 +152,7 @@ Resources:
         Ref: ApiGatewayRes
       ParentId:
         Ref: ProcessInput
-      PathPart: getPrediction
+      PathPart: prediction
   ExecutionMethod:
     DependsOn: ApiGatewayLambdaRes
     Type: AWS::ApiGateway::Method
